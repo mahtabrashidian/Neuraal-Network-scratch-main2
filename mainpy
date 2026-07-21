@@ -1,0 +1,163 @@
+import math
+import numpy as np
+import time
+
+class NeuralNetwork:
+    def __init__(self, sizes, activation='sigmoid'):
+        self.sizes = sizes
+        if activation == 'sigmoid':
+            self.activation = self.sigmoid_activation 
+        elif activation == 'relu':
+            self.activation = self.reLu_activation
+        else:
+            raise ValueError("Activation function must be 'sigmoid' or 'relu'")
+
+        self.params = self.initialize(sizes)
+        self.cache = {}
+        self.optimizer = None
+        self.momentum_opt = None
+    
+    def softmax_activation(self, x):
+        # برای جلوگیری از سرریز عددی (Numerical Overflow)
+        shift_x = x - np.max(x, axis=0, keepdims=True)
+        exps = np.exp(shift_x)
+        return exps / np.sum(exps, axis=0, keepdims=True)
+    
+    def reLu_activation(self, x, derivative=False):
+        if derivative:
+            # خروجی مشتق بر اساس مقدار Z
+            return (x > 0).astype(float)
+        return np.maximum(0, x)
+    
+    def sigmoid_activation(self, x, derivative=False):
+        if derivative:
+            # خروجی مشتق بر اساس مقدار خود سیگموئید (sigmoid(Z))
+            # در صورتی که ورودی خود سیگموئید باشد:
+            return x * (1 - x)
+        return 1 / (1 + np.exp(-x))
+    
+    def initialize(self, sizes):
+        input_layer = sizes[0]
+        hidden_layer = sizes[1]
+        output_layer = sizes[2]
+
+        # مقداردهی اولیه وزن‌ها با روش Xavier/Glorot
+        params = {
+            'W1': np.random.randn(hidden_layer, input_layer) * np.sqrt(2.0 / (input_layer + hidden_layer)),
+            'b1': np.zeros((hidden_layer, 1)),
+            'W2': np.random.randn(output_layer, hidden_layer) * np.sqrt(2.0 / (hidden_layer + output_layer)),
+            'b2': np.zeros((output_layer, 1))
+        }
+        return params
+
+    def initialize_momentum_optimizer(self):
+        momentum_opt = {
+            "W1": np.zeros(self.params["W1"].shape),
+            "b1": np.zeros(self.params["b1"].shape),
+            "W2": np.zeros(self.params["W2"].shape),
+            "b2": np.zeros(self.params["b2"].shape),
+        }
+        return momentum_opt
+
+    def feed_forward(self, x):
+        # نگهداری ورودی به صورت ترانهاده برای محاسبات ضرب ماتریسی راحت‌تر
+        self.cache['X'] = x
+        self.cache['Z1'] = np.matmul(self.params['W1'], x.T) + self.params['b1']
+        self.cache['A1'] = self.activation(self.cache['Z1'])
+        self.cache['Z2'] = np.matmul(self.params['W2'], self.cache['A1']) + self.params['b2']
+        self.cache['A2'] = self.softmax_activation(self.cache['Z2'])
+
+        return self.cache['A2']
+    
+    def feed_back(self, y, output):
+        batch_size = y.shape[0]
+
+        # گرادیان لایه خروجی (Softmax + Cross Entropy)
+        dZ2 = output - y.T  # ابعاد: (output_layer, batch_size)
+        dW2 = (1. / batch_size) * np.matmul(dZ2, self.cache['A1'].T)
+        db2 = (1. / batch_size) * np.sum(dZ2, axis=1, keepdims=True)
+        
+        # انتشار به عقب به لایه پنهان
+        dA1 = np.matmul(self.params["W2"].T, dZ2)
+        
+        # محاسبه مشتق فعال‌ساز
+        if self.activation == self.sigmoid_activation:
+            # برای سیگموئید، مشتق را روی خروجی فعال‌ساز (A1) اعمال می‌کنیم
+            d_act = self.activation(self.cache["A1"], derivative=True)
+        else:
+            # برای ReLU، مشتق را روی ورودی خام (Z1) اعمال می‌کنیم
+            d_act = self.activation(self.cache["Z1"], derivative=True)
+            
+        dZ1 = dA1 * d_act
+        
+        # تصحیح جهت ضرب ماتریسی برای dW1
+        dW1 = (1. / batch_size) * np.matmul(dZ1, self.cache["X"])
+        db1 = (1. / batch_size) * np.sum(dZ1, axis=1, keepdims=True)
+        
+        self.grads = {"W1": dW1, "b1": db1, "W2": dW2, "b2": db2}
+        return self.grads
+    
+    def optimize(self, l_rate=0.1, beta=0.9):
+        if self.optimizer == "sgd":
+            for key in self.params:
+                self.params[key] -= l_rate * self.grads[key]
+        elif self.optimizer == "momentum":
+            for key in self.params:
+                self.momentum_opt[key] = (beta * self.momentum_opt[key] + (1. - beta) * self.grads[key])
+                self.params[key] -= l_rate * self.momentum_opt[key]
+        else:
+            raise ValueError("Optimizer not supported. Use 'sgd' or 'momentum'.")
+
+    def accuracy(self, y, output):
+        return np.mean(np.argmax(y, axis=-1) == np.argmax(output.T, axis=-1))
+
+    def cross_entropy_loss(self, y, output):
+        # جلوگیری از خطای log(0) با اضافه کردن اپسیلون کوچک
+        epsilon = 1e-15
+        clipped_output = np.clip(output, epsilon, 1 - epsilon)
+        l_sum = np.sum(y.T * np.log(clipped_output))
+        m = y.shape[0]
+        return -(1. / m) * l_sum
+
+    def train(self, x_train, y_train, x_test, y_test, epochs=20, 
+              batch_size=64, optimizer='momentum', l_rate=0.1, beta=0.9):
+        self.epochs = epochs
+        self.batch_size = batch_size
+        num_batches = int(np.ceil(x_train.shape[0] / self.batch_size))
+        
+        self.optimizer = optimizer
+        if self.optimizer == 'momentum':
+            self.momentum_opt = self.initialize_momentum_optimizer()
+        
+        start_time = time.time()
+        template = "Epoch {:2d}: {:.2f}s, train acc={:.2f}, train loss={:.2f}, test acc={:.2f}, test loss={:.2f}"
+        
+        for i in range(self.epochs):
+            permutation = np.random.permutation(x_train.shape[0])
+            x_train_shuffled = x_train[permutation]
+            y_train_shuffled = y_train[permutation]
+
+            for j in range(num_batches):
+                begin = j * self.batch_size
+                end = min(begin + self.batch_size, x_train.shape[0])
+                x = x_train_shuffled[begin:end]
+                y = y_train_shuffled[begin:end]
+                
+                # پرش از دسته‌های خالی احتمالی
+                if x.shape[0] == 0:
+                    continue
+                    
+                output = self.feed_forward(x)
+                self.feed_back(y, output)
+                self.optimize(l_rate=l_rate, beta=beta)
+
+            # ارزیابی در انتهای هر دوره
+            train_output = self.feed_forward(x_train)
+            train_acc = self.accuracy(y_train, train_output)
+            train_loss = self.cross_entropy_loss(y_train, train_output)
+            
+            test_output = self.feed_forward(x_test)
+            test_acc = self.accuracy(y_test, test_output)
+            test_loss = self.cross_entropy_loss(y_test, test_output)
+            
+            print(template.format(i+1, time.time() - start_time, train_acc, train_loss, test_acc, test_loss))
