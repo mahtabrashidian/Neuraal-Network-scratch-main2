@@ -1,0 +1,43 @@
+# Neural Network from Scratch with NumPy
+
+A simple fully connected neural network implemented from scratch using `NumPy`, with support for:
+
+- One hidden layer
+- `sigmoid` and `ReLU` activation functions
+- `softmax` output layer
+- Cross-entropy loss
+- `SGD` and `Momentum` optimization
+
+This project is designed for educational purposes to demonstrate how forward propagation, backpropagation, and parameter updates work in a neural network without using deep learning frameworks such as TensorFlow or PyTorch.
+
+---
+
+## Features
+
+- Built entirely with `NumPy`
+- Supports binary/multi-class classification through `softmax`
+- Includes:
+  - Forward propagation
+  - Backpropagation
+  - Cross-entropy loss
+  - Accuracy calculation
+  - SGD optimizer
+  - Momentum optimizer
+
+---
+
+## Project Structure
+```python
+class NeuralNetwork:
+- __init__()
+- initialize()
+- initialize_momentum_optimizer()
+- sigmoid_activation()
+- reLu_activation()
+- softmax_activation()
+- feed_forward()
+- feed_back()
+- optimize()
+- cross_entropy_loss()
+- accuracy()
+- train()
